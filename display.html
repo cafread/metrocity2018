@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=Edge">
+    <style type="text/css">
+      html,
+      body,
+      #map {
+        height: 100%;
+        width: 100%;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+      }
+      .tooltip {
+        position: absolute;
+        text-align: center;
+        padding: 4px;
+        font-family: sans-serif;
+        border: 0;
+        border-radius: 8px;
+        pointer-events: none;
+        white-space: nowrap;
+        z-index: 400;
+      }
+      .dotTip {
+        font-size: 14px;
+        background: white;
+      }
+      .aptTip {
+        font: 14px;
+        background: gold;
+      }
+      .leaflet-control-attribution {
+        visibility: hidden;
+      }
+    </style>
+    <link href='https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.3.1/leaflet.css' rel='stylesheet' type='text/css'/>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.3.1/leaflet.js"></script>
+    <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/4.13.0/d3.min.js"></script> -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.4.9/d3.min.js"></script>
+    <script src="D3SvgOverlay.js"></script>
+  </head>
+  <body>
+    <div id="map"></div>
+    <script type="text/javascript">
+      function debounce(func, wait, immediate) {
+        var timeout;
+        return function() {
+          var context = this, args = arguments;
+          var later = function() {
+            timeout = null;
+            if (!immediate) func.apply(context, args);
+          };
+          var callNow = immediate && !timeout;
+          clearTimeout(timeout);
+          timeout = setTimeout(later, wait);
+          if (callNow) func.apply(context, args);
+        };
+      };
+      d3.selection.prototype.moveToFront = function() {
+        return this.each(function(){
+          this.parentNode.appendChild(this);
+        });
+      };
+      function setDimensions () {
+        var w = window.innerWidth;
+        var h = window.innerHeight;
+        dimensions.rectWidth  = w / 100;
+        dimensions.rectHeight = h / 50;
+        dimensions.circle = h / 70;
+        dimensions.zoomLevel = map.getZoom();
+      }
+      function color (str) {
+        if (top35Cities.indexOf(str) != -1) {
+          return colb(str);
+        } else {
+          return col(str);
+        }
+      }
+      function goDotty (data) {
+        d3.selectAll('.dots').remove();
+        aptTip.style("opacity", 0);
+        dotTip.style("opacity", 0);
+        data.forEach(function(d) {d.LatLng = new L.LatLng(d.la, d.lo)});
+        var dotsOverlay = L.d3SvgOverlay(function (sel, proj) {
+          sel.selectAll('rect')
+            .data(data)
+            .enter()
+            .append('rect')
+              .attr('class', 'dots')
+              .attr('width', dimensions.rectWidth)
+              .attr('height', dimensions.rectHeight)
+              .attr('x', function (d) {return proj.latLngToLayerPoint([d.la, d.lo]).x - (dimensions.rectWidth / 2);})
+              .attr('y', function (d) {return proj.latLngToLayerPoint([d.la, d.lo]).y - (dimensions.rectHeight / 2);})
+              .attr('fill', function (d) {return color(d.city);})
+              .style('opacity', function (d) {return top35Cities.indexOf(d.city) > -1 ? 0.7 : 0.4;})
+              .on("mouseover", function (d) {
+                d3.select(this).style('opacity', function (d) {return top35Cities.indexOf(d.city) > -1 ? 1.0 : 0.8;});
+                aptTip.style("opacity", 0);
+                dotTip.transition()
+                  .duration(200)
+                  .style("opacity", .9);
+                dotTip.html("Metro City: " + d.city)
+                  .style("left", (d3.event.pageX + 30) + "px")
+                  .style("top", (d3.event.pageY - 28) + "px");
+                })
+              .on("mouseout", function(d) {
+                d3.select(this).style('opacity', function (d) {return top35Cities.indexOf(d.city) > -1 ? 0.7 : 0.4;});
+                dotTip.transition()
+                  .duration(500)
+                  .style("opacity", 0);
+              });
+        });
+        dotsOverlay.addTo(map);
+        // last cleanup step to move airports to the front
+        d3.select('#aptG').moveToFront();
+      }
+      function drawAirports (airports) {
+        var airportsOverlay = L.d3SvgOverlay(function (sel, proj) {
+          var aptG = sel.append('g')
+            .attr('id', 'airportG');
+          aptG.selectAll('circle')
+            .data(airports)
+            .enter()
+            .append('circle')
+              .attr('class', 'bgCircle')
+              .attr('r', function (d) {
+                // Scale limited to maximum 10 k visits
+                return dimensions.circle * (0.3 + 0.7 * Math.sqrt(Math.min(d.visits, 20000)) / Math.sqrt(20000));
+              })
+              .attr('cx', function (d) {return proj.latLngToLayerPoint([d.la, d.lo]).x;})
+              .attr('cy', function (d) {return proj.latLngToLayerPoint([d.la, d.lo]).y;})
+              .attr('fill', "black")
+              .style('opacity', 0.8)
+              .on("mouseover", function(d) {
+                dotTip.style("opacity", 0);
+                d3.select(this).style('opacity', 1);
+                aptTip.transition()
+                  .duration(200)
+                  .style("opacity", 1);
+                aptTip.html("Airport: (" + d.code + ") " + d.name + "<br>" + "Metro City: " + d.city + "<br>" + "Visits since 2015-01: " + d3.format(",0f")(d.visits))
+                  .style("left", (d3.event.pageX + 30) + "px")
+                  .style("top", (d3.event.pageY - 28) + "px");
+                })
+              .on("mouseout", function(d) {
+                d3.select(this).style('opacity', 0.8);
+                aptTip.transition()
+                  .duration(500)
+                  .style("opacity", 0);
+              });
+        });
+        airportsOverlay.addTo(map);
+        // give the parent group an id, so it can easily be brought to the top of the SVG
+        d3.select('#airportG').attr('work', function(d){
+          d3.select(this.parentNode.parentNode)
+            .attr('id', 'aptG');
+          return '';
+        });
+      }
+      
+      var top35Cities = [
+        "Shanghai",
+        "Beijing",
+        "Istanbul",
+        "Mumbai",
+        "Karachi",
+        "Moscow",
+        "São Paulo",
+        "Tianjin",
+        "Guangzhou",
+        "Delhi",
+        "Lagos",
+        "Shenzhen",
+        "Seoul",
+        "Wuhan",
+        "Jakarta",
+        "Lima",
+        "Mexico City",
+        "Tokyo",
+        "Bengaluru",
+        "New York",
+        "Bangkok",
+        "Dongguan",
+        "London",
+        "Teheran",
+        "Cairo",
+        "Chengdu",
+        "Bogotá",
+        "Chongqing",
+        "Kinshasa",
+        "Ahmedabad",
+        "Nanjing",
+        "Hồ Chí Minh Stadt",
+        "Hong Kong",
+        "Hyderabad"
+      ];
+      var col = d3.scale.category20();
+      var colb = d3.scale.category20()
+        .domain(top35Cities);
+      var dimensions = {
+        rectWidth: 18,
+        rectHeight: 18,
+        circle: 10,
+        zoomLevel: 6
+      };
+      var dotTip = d3.select("body").append("div")
+          .attr("class", "tooltip dotTip")
+          .style("opacity", 0);
+      var aptTip = d3.select("body").append("div")
+          .attr("class", "tooltip aptTip")
+          .style("opacity", 0);
+      var map = L.map("map", {center:[53, -1], zoom: 6, zoomAnimation: false, markerZoomAnimation: false, fadeAnimation: false});
+      var mapVis = L.tileLayer('http://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {minZoom: 4, maxZoom: 9});
+      mapVis.addTo(map);
+      
+      // On the user changing position, zoom look to update
+      // But multiple scroll wheel actions cause this to grind, so debounce the input
+      // Debounce returns a function, that, as long as it continues to be invoked, will not
+      // be triggered. The function will be called after it stops being called for
+      // N milliseconds. If `immediate` is passed, trigger the function on the
+      // leading edge, instead of the trailing.
+      var w = new Worker("dotMaker.js");
+      var onChange = debounce(function () {
+        // As soon as possible
+        w.postMessage(['dots', map.getBounds()]);
+        // A lot of the render time is leaflet js forcing synchronous layouts, this removal greatly improves matters
+        // https://developers.google.com/web/fundamentals/performance/rendering/avoid-large-complex-layouts-and-layout-thrashing#avoid-forced-synchronous-layouts
+        // This removes the coloured squares
+        // Only needed if oldZoom !== newZoom
+        if (map.getZoom() !== dimensions.zoomLevel) {
+          d3.selectAll('.leaflet-overlay-pane').selectAll("svg:not(#aptG)").remove();
+        }
+        // Update the airport circle sizes
+        setDimensions ();
+        d3.selectAll('.bgCircle')
+          .attr('r', function (d) {
+            // 0.5 would be constant onscreen size, 0.7 shows a bit larger as you zoom in, and looks better
+            return dimensions.circle * Math.pow(0.7, (dimensions.zoomLevel - 6)) * (0.3 + 0.7 * Math.sqrt(Math.min(d.visits, 20000)) / Math.sqrt(20000));
+          });
+      }, 300); // 300 ms debounce timeout
+      
+      // user pan / zoom trigger
+      map.on('moveend', onChange);
+      setDimensions ();
+      
+      // Web worker handling
+      w.onmessage = function (event) {
+        // if it's airport data, draw airports, else draw dots
+        console.log(event);
+        if (event.data[0] === 'airports') {
+          drawAirports (event.data[1]);
+        } else if (event.data[0] === 'cities') {
+          goDotty (event.data[1]);
+        } else if (event.data[0] === 'color') {
+          col.domain(event.data[1]);
+        } else {
+          console.log('received', event);
+        }
+      };
+      w.postMessage(['color']);
+      w.postMessage(['airports']);
+      w.postMessage(['dots', map.getBounds()]);
+      
+      // todo & ideas
+      // include override in data
+      // colour overriden airports differently - clientOverride, masterOverride, default
+      // add filters for UK, Europe, N. America, Japan, global - store filters to apply and flyto coordinates
+      // add control for calculation method
+      // update d3.js to recent version?
+    </script>
+  </body>
+</html>
